@@ -1,0 +1,63 @@
+BILLING
+Q: How do I update my payment method?
+A: Log into your account, go to Billing Settings, and click Update Payment Method. You can add a new credit card or bank account.
+
+Q: Why was I charged twice this month?
+A: Double charges are usually due to a failed payment retry. Please contact our billing team with your invoice number and we will resolve it within 24 hours.
+
+Q: How do I cancel my subscription?
+A: Go to Account Settings > Subscription > Cancel Plan. Your access will continue until the end of the current billing period.
+
+Q: Can I get a refund for last month?
+A: Refunds are available within 30 days of charge. Please raise a request with your invoice number and reason and our team will review it.
+
+Q: How do I download my invoice?
+A: Log in to your account, go to Billing > Invoice History, and click Download PDF next to the relevant month.
+
+TECHNICAL
+Q: The integration with Salesforce is not working.
+A: Please check that your API credentials are up to date and that the connected app has the required OAuth scopes enabled. If the issue persists, share your error log with our support team.
+
+Q: I am getting a 401 Unauthorized error on the API.
+A: A 401 error means your API key is invalid or expired. Regenerate your API key from the Developer Settings page and update it in your integration.
+
+Q: How do I reset my password?
+A: Click Forgot Password on the login page. You will receive a reset link on your registered email within 2 minutes.
+
+Q: The dashboard is not loading any data.
+A: This is usually a browser cache issue. Try clearing your cache and cookies or open the dashboard in an incognito window. If the issue persists, contact support.
+
+Q: How do I enable two-factor authentication?
+A: Go to Account Settings > Security > Two-Factor Authentication and follow the setup instructions. We support authenticator apps and SMS.
+
+SALES
+Q: What plans do you offer?
+A: We offer Starter, Professional, and Enterprise plans. Starter is best for small teams, Professional for growing businesses, and Enterprise for large organizations needing custom SLAs and dedicated support.
+
+Q: Can I get a demo of the Enterprise plan?
+A: Absolutely. Please share your name, company, and team size and our sales team will schedule a personalized demo within 24 hours.
+
+Q: Is there a free trial available?
+A: Yes, we offer a 14-day free trial on our Professional plan with no credit card required. You can sign up directly from our website.
+
+Q: Can I upgrade my plan mid-month?
+A: Yes, you can upgrade at any time. The price difference will be prorated and charged immediately. Your new features will be available instantly.
+
+Q: Do you offer discounts for annual billing?
+A: Yes, annual billing gives you 20% off compared to monthly billing. You can switch to annual from your Billing Settings at any time.
+
+GENERAL
+Q: What are your support hours?
+A: Our support team is available Monday to Friday, 9am to 6pm IST. Enterprise customers have access to 24/7 priority support.
+
+Q: How do I contact support?
+A: You can reach us via live chat on the website, email at support@flowsync.io, or by raising a ticket from your account dashboard.
+
+Q: Where is my data stored?
+A: All customer data is stored in AWS data centers located in Mumbai and Singapore. We are SOC2 Type II certified and GDPR compliant.
+
+Q: Can I export my data?
+A: Yes, you can export all your data in CSV or JSON format from Account Settings > Data Export. Enterprise customers can also request a full database dump.
+
+Q: Do you have a mobile app?
+A: Yes, FlowSync is available on iOS and Android. Search for FlowSync in the App Store or Google Play Store to download it.

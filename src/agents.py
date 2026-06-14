@@ -121,15 +121,22 @@ def escalate(state: AgentState) -> dict:
 def respond(state: AgentState) -> dict:
     """
     Final response generation using Claude Sonnet.
-    Has full message history including tool outputs.
+    Filters out SystemMessages from state to avoid multiple system message error.
     """
+    from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+
     system = SystemMessage(content="""You are a helpful enterprise customer service agent for FlowSync.
 Be professional, concise and helpful.
 If context from knowledge base or order system is provided, use it in your response.""")
 
-    response = responder_llm.invoke([system] + state["messages"])
-    return {"messages": [response]}
+    # Filter out SystemMessages from state — only keep Human, AI, Tool messages
+    filtered_messages = [
+        m for m in state["messages"]
+        if not isinstance(m, SystemMessage)
+    ]
 
+    response = responder_llm.invoke([system] + filtered_messages)
+    return {"messages": [response]}
 # ─────────────────────────────────────────────
 # BLOCK 7 — GRAPH ASSEMBLY
 # ─────────────────────────────────────────────
