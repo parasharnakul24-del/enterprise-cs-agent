@@ -1,0 +1,6 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "flowsync": "./src/agents.py:graph"
+  }
+}
