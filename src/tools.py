@@ -13,16 +13,12 @@ load_dotenv()
 @tool
 def lookup_knowledge_base(query: str) -> str:
     """
-    Look up the FlowSync knowledge base for answers to technical questions.
-    Use this for product how-to, troubleshooting, and feature questions.
-    
-    Args:
-        query: The customer's technical question or issue description
-        
-    Returns:
-        Relevant FAQ content from the knowledge base
+    Semantic search over FlowSync FAQ knowledge base using ChromaDB.
+    Returns top 3 matching Q&A chunks as context for the responder.
     """
-    return f"[KB STUB] Searching for: {query}. ChromaDB integration pending."
+    from src.knowledge_base import retrieve
+    result = retrieve(query)
+    return result
 
 
 # ─────────────────────────────────────────────
