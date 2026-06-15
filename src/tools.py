@@ -14,7 +14,13 @@ load_dotenv()
 def lookup_knowledge_base(query: str) -> str:
     """
     Semantic search over FlowSync FAQ knowledge base using ChromaDB.
-    Returns top 3 matching Q&A chunks as context for the responder.
+    Use this for technical questions, how-to queries, and product feature questions.
+    
+    Args:
+        query: The customer's question to search for
+        
+    Returns:
+        Top 3 matching FAQ chunks as context
     """
     from src.knowledge_base import retrieve
     result = retrieve(query)
