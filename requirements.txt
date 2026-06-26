@@ -1,0 +1,9 @@
+anthropic
+langchain-core
+langchain-anthropic
+langgraph
+chromadb
+sentence-transformers
+fastapi
+uvicorn
+python-dotenv
