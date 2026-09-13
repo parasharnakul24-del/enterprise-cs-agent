@@ -101,15 +101,20 @@ def route_intent(state: AgentState) -> Literal["lookup_kb", "escalate", "check_o
 # ─────────────────────────────────────────────
 # BLOCK 5 — TOOL NODES (stubs for now)
 # ─────────────────────────────────────────────
+from src.knowledge_base import retrieve
+
 def lookup_kb(state: AgentState) -> dict:
-    """Look up knowledge base — ChromaDB integration (Week 4 Thu)."""
-    # Stub — will wire ChromaDB Thursday
-    return {"messages": [SystemMessage(content="[KB LOOKUP STUB] Technical content here.")]}
+    last_message = state["messages"][-1].content
+    chunks = retrieve(last_message, n_results=3)
+    context = "\n".join(chunks)
+    return {"messages": [SystemMessage(content=f"[KB CONTEXT]\n{context}")]}
+
+from src.tools import check_order_status
 
 def check_order(state: AgentState) -> dict:
-    """Check order/subscription status."""
-    # Stub — will wire real logic Thursday
-    return {"messages": [SystemMessage(content="[ORDER CHECK STUB] Billing info here.")]}
+    customer_id = state.get("customer_id", "UNKNOWN")
+    result = check_order_status.invoke({"customer_id": customer_id})
+    return {"messages": [SystemMessage(content=f"[ORDER STATUS]\n{result}")]}
 
 def escalate(state: AgentState) -> dict:
     """Escalate to human agent for Sales queries."""
@@ -179,7 +184,7 @@ def build_graph():
 
     # Compile with memory — one thread per customer session
     memory = MemorySaver()
-    return builder.compile(checkpointer=memory)
+    return builder.compile()
 
 # Build the graph
 graph = build_graph()
