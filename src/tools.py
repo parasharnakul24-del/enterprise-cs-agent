@@ -4,16 +4,25 @@
 import os
 from dotenv import load_dotenv
 from langchain_core.tools import tool
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 load_dotenv()
 
 # ─────────────────────────────────────────────
 # TOOL 1 — KNOWLEDGE BASE LOOKUP
 # ─────────────────────────────────────────────
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+def _retrieve_with_retry(query: str) -> str:
+    """Pinecone hybrid-search call — retries on transient failures."""
+    from src.knowledge_base import retrieve
+    return retrieve(query)
+
+
 @tool
 def lookup_knowledge_base(query: str) -> str:
     """
-    Semantic search over FlowSync FAQ knowledge base using ChromaDB.
+    Semantic search over FlowSync FAQ knowledge base using hybrid search
+    (Pinecone dense + BM25).
     Use this for technical questions, how-to queries, and product feature questions.
     
     Args:
@@ -22,9 +31,7 @@ def lookup_knowledge_base(query: str) -> str:
     Returns:
         Top 3 matching FAQ chunks as context
     """
-    from src.knowledge_base import retrieve
-    result = retrieve(query)
-    return result
+    return _retrieve_with_retry(query)
 
 
 # ─────────────────────────────────────────────
@@ -43,6 +50,7 @@ def escalate_to_human(reason: str, customer_id: str = "unknown") -> str:
     Returns:
         Confirmation that escalation has been initiated
     """
+    # No external call — pure string formatting. No retry needed.
     ticket_id = f"ESC-{customer_id[:4].upper()}-001"
     return (
         f"Escalation initiated. Ticket ID: {ticket_id}. "
@@ -66,6 +74,7 @@ def check_order_status(customer_id: str) -> str:
     Returns:
         Current subscription and billing status
     """
+    # Mock local dict lookup — no external call. No retry needed.
     mock_data = {
         "CUST001": {
             "plan": "Enterprise",

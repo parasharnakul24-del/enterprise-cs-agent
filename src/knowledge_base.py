@@ -1,63 +1,45 @@
 # src/knowledge_base.py
-# FlowSync Knowledge Base — ChromaDB RAG
-# Ingests data/faqs.txt and exposes retrieve() for semantic search
+# FlowSync Knowledge Base — HYBRID SEARCH (Pinecone dense + BM25 sparse)
+#
+# Upgraded Week 5 Wednesday from ChromaDB-only similarity search.
+# Public contract UNCHANGED from the Chroma version:
+#   retrieve(query: str, n_results: int = 3) -> str
+# tools.py's lookup_knowledge_base needs no changes because of this.
 
 import os
-import chromadb
-from chromadb.utils import embedding_functions
+import sys
+from dotenv import load_dotenv
+from pinecone import Pinecone, ServerlessSpec
+from langchain_openai import OpenAIEmbeddings
+from langchain_pinecone import PineconeVectorStore
+from langchain_community.retrievers import BM25Retriever
+from langchain_classic.retrievers import EnsembleRetriever  # moved here in LangChain 1.0+
+from langchain_core.documents import Document
+
+load_dotenv()  # expects PINECONE_API_KEY and OPENAI_API_KEY in .env (never committed)
+
+FAQS_PATH = "./data/faqs.txt"
+INDEX_NAME = "flowsync-kb"
+EMBEDDING_MODEL = "text-embedding-3-small"  # 1536 dims
+
+pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
+embeddings = OpenAIEmbeddings(model=EMBEDDING_MODEL)
 
 # ─────────────────────────────────────────────
-# BLOCK 1 — CLIENT + COLLECTION SETUP
+# BLOCK 1 — CHUNK PARSING (unchanged logic from Chroma version)
 # ─────────────────────────────────────────────
-# PersistentClient saves to disk — survives restarts
-# Path is relative to project root
-CHROMA_PATH = "./chroma_db"
-COLLECTION_NAME = "flowsync_faqs"
-
-def get_collection():
+def _parse_faq_chunks(faqs_path: str = FAQS_PATH) -> list[str]:
     """
-    Returns ChromaDB collection.
-    Creates it if it doesn't exist.
-    Uses cosine similarity — better than L2 for text.
+    Reads data/faqs.txt, splits on blank lines, strips section headers
+    (BILLING, TECHNICAL, etc.) that prefix some Q: blocks.
+    Same parsing rules as the original Chroma ingest_faqs() — carried
+    over exactly so chunk content doesn't silently change between versions.
     """
-    client = chromadb.PersistentClient(path=CHROMA_PATH)
-    
-    # Default embedding function uses sentence-transformers locally
-    # No API key needed — runs on CPU
-    ef = embedding_functions.DefaultEmbeddingFunction()
-    
-    collection = client.get_or_create_collection(
-        name=COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"},
-        embedding_function=ef
-    )
-    return collection
-
-# ─────────────────────────────────────────────
-# BLOCK 2 — INGEST FAQs
-# ─────────────────────────────────────────────
-def ingest_faqs(faqs_path: str = "./data/faqs.txt") -> int:
-    """
-    Loads data/faqs.txt, splits into Q&A chunks, upserts into ChromaDB.
-    Safe to run multiple times — upsert won't duplicate.
-    Returns number of chunks ingested.
-    """
-    collection = get_collection()
-    
-    # Check if already ingested
-    if collection.count() > 0:
-        print(f"[KB] Already ingested {collection.count()} chunks. Skipping.")
-        return collection.count()
-    
-    # Read the FAQ file
     with open(faqs_path, "r", encoding="utf-8") as f:
         raw = f.read()
-    
-    # Split by blank lines into chunks
-    # Each chunk = one Q&A pair
+
     chunks = [c.strip() for c in raw.split("\n\n") if c.strip()]
-    
-    # Filter out section headers (BILLING, TECHNICAL, etc.)
+
     qa_chunks = []
     for c in chunks:
         if c.startswith("Q:"):
@@ -67,62 +49,134 @@ def ingest_faqs(faqs_path: str = "./data/faqs.txt") -> int:
             qa_only = c[c.index("\nQ:") + 1:]
             qa_chunks.append(qa_only)
 
-    if qa_chunks:
-        collection.upsert(
-            documents=qa_chunks,
-            ids=[f"faq_{i}" for i in range(len(qa_chunks))]
-        )
-        print(f"[KB] Ingested {len(qa_chunks)} FAQ chunks into ChromaDB.")
-    else:
-        print("[KB] No FAQ chunks found to ingest.")
-    return len(qa_chunks)
+    return qa_chunks
+
 
 # ─────────────────────────────────────────────
-# BLOCK 3 — RETRIEVE
+# BLOCK 2 — INDEX SETUP + INGEST
+# ─────────────────────────────────────────────
+def _ensure_index():
+    """Create the Pinecone index once, if it doesn't already exist."""
+    existing = [i.name for i in pc.list_indexes()]
+    if INDEX_NAME not in existing:
+        pc.create_index(
+            name=INDEX_NAME,
+            dimension=1536,
+            metric="cosine",
+            spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+        )
+        print(f"[KB] Created Pinecone index '{INDEX_NAME}'")
+
+
+def ingest_faqs(faqs_path: str = FAQS_PATH) -> int:
+    """
+    Populates the Pinecone index from faqs.txt.
+    Idempotent — same behavior as the Chroma version: if the index
+    already has vectors, skip re-ingesting rather than duplicating.
+    Returns number of chunks ingested (or already present).
+    """
+    _ensure_index()
+    index = pc.Index(INDEX_NAME)
+    stats = index.describe_index_stats()
+
+    if stats.total_vector_count > 0:
+        print(f"[KB] Already ingested {stats.total_vector_count} chunks. Skipping.")
+        return stats.total_vector_count
+
+    qa_chunks = _parse_faq_chunks(faqs_path)
+
+    if not qa_chunks:
+        print("[KB] No FAQ chunks found to ingest.")
+        return 0
+
+    docs = [Document(page_content=c, metadata={"chunk_id": i}) for i, c in enumerate(qa_chunks)]
+    PineconeVectorStore.from_documents(
+        documents=docs,
+        embedding=embeddings,
+        index_name=INDEX_NAME,
+    )
+    print(f"[KB] Ingested {len(qa_chunks)} FAQ chunks into Pinecone index '{INDEX_NAME}'.")
+    return len(qa_chunks)
+
+
+# ─────────────────────────────────────────────
+# BLOCK 3 — HYBRID RETRIEVER (dense + sparse)
+# ─────────────────────────────────────────────
+def _build_hybrid_retriever(faqs_path: str = FAQS_PATH):
+    """
+    Dense retriever: Pinecone vector search (semantic similarity).
+    Sparse retriever: BM25 (exact keyword / lexical match).
+    Combined via EnsembleRetriever, weighted 60% dense / 40% sparse —
+    verified this week in rag-learning/hybrid_test.py.
+    """
+    qa_chunks = _parse_faq_chunks(faqs_path)
+    docs = [Document(page_content=c, metadata={"chunk_id": i}) for i, c in enumerate(qa_chunks)]
+
+    vectorstore = PineconeVectorStore(index_name=INDEX_NAME, embedding=embeddings)
+    dense_retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+
+    bm25_retriever = BM25Retriever.from_documents(docs)
+    bm25_retriever.k = 5
+
+    return EnsembleRetriever(
+        retrievers=[dense_retriever, bm25_retriever],
+        weights=[0.6, 0.4],
+    )
+
+
+_hybrid_retriever = None  # built lazily so importing this module doesn't require the index to exist yet
+
+
+def _get_retriever():
+    global _hybrid_retriever
+    if _hybrid_retriever is None:
+        _hybrid_retriever = _build_hybrid_retriever()
+    return _hybrid_retriever
+
+
+# ─────────────────────────────────────────────
+# BLOCK 4 — RETRIEVE (public contract — UNCHANGED signature and return type)
 # ─────────────────────────────────────────────
 def retrieve(query: str, n_results: int = 3) -> str:
     """
-    Semantic search over FAQ knowledge base.
-    Returns top n_results chunks as a single string.
-    Called by lookup_knowledge_base tool in tools.py.
+    Hybrid search over FAQ knowledge base.
+    Returns top n_results chunks as a single formatted string — SAME
+    contract as the Chroma version. Called by lookup_knowledge_base
+    tool in tools.py; tools.py needs no changes for this upgrade.
     """
-    collection = get_collection()
-    
-    if collection.count() == 0:
+    index = pc.Index(INDEX_NAME)
+    if index.describe_index_stats().total_vector_count == 0:
         ingest_faqs()
-    
-    results = collection.query(
-        query_texts=[query],
-        n_results=n_results
-    )
-    
-    # Extract the matched documents
-    docs = results["documents"][0]  # list of matching chunks
-    
+
+    results = _get_retriever().invoke(query)
+    docs = [doc.page_content for doc in results[:n_results]]
+
     if not docs:
         return "No relevant information found in knowledge base."
-    
-    # Format as clean context string
+
     context = "\n\n---\n\n".join(docs)
     return context
 
+
 # ─────────────────────────────────────────────
-# BLOCK 4 — TEST / STANDALONE RUN
+# BLOCK 5 — TEST / STANDALONE RUN (same 5 queries as the Chroma version)
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
+    if sys.stdout.encoding.lower() != "utf-8":
+        sys.stdout.reconfigure(encoding="utf-8")
+
     print("Ingesting FAQs...")
     count = ingest_faqs()
     print(f"Total chunks: {count}\n")
-    
-    # Test 5 queries
+
     test_queries = [
         "How do I cancel my subscription?",
         "I am getting a 401 error on the API",
         "What plans do you offer?",
         "Where is my data stored?",
-        "My invoice is wrong"
+        "My invoice is wrong",
     ]
-    
+
     for q in test_queries:
         print(f"Query: {q}")
         result = retrieve(q)
